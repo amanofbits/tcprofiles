@@ -1,0 +1,5 @@
+tcprofiles
+tcptemplate*.txt
+
+.vscode
+.idea
