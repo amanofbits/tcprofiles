@@ -1,20 +1,22 @@
 # TCProfiles
 
-TLP Config Profiles (not affiliated with tlp) - A tool that allows to use different profiles of [TLP](https://github.com/linrunner/TLP) configuration
+TLP Config Profiles (not affiliated with tlp) - A small tool that allows to use different profiles of [TLP](https://github.com/linrunner/TLP) configuration
 
 ## Why?
 
-TLP is a great tool, but I found myself in situation where I need to change my configuration often, but I haven't found how to use tlp with multiple configs (profiles). It allows to set different settings for AC and battery, but as far as I understand, it completely misses the fact that "AC" is not "just AC" anymore. Laptops are now powered by type-c and can use PD powerbanks which are still treated as an AC adapter by the laptop, while effectively being an external battery.
+TLP is a great tool, but I found myself in situation where I need to change my configuration often, and I haven't found how to use tlp with multiple configs (profiles). It allows to set different settings for AC and battery, but as far as I understand (maybe I missed something while searching?), it ignores the fact that "AC" is not just AC anymore. Laptops are now powered via USB type-c and can make use of PD powerbanks which are still treated as an AC adapter by the laptop, while effectively being an external battery.
 
-This tool was created to work around this problem by quickly switching configuration profiles.
+TCProfiles was created to work around this problem by defining and then quickly switching configuration profiles.
 
-Of course, you can have multiple config files and replace them, or have them all in tlp.d and rename them,
-but this looks impractical to me if has to be done often.
-This is why this tool was created. It allows to create one single template config with different profiles, and apply them
-using few commands as necessary. Yes, this probably can be done with single small bash script but I just find Go easier to
+Of course you can have multiple config files and replace them, or have them all in tlp.d and rename them to change priorities,
+but it looks impractical to me if has to be done often.
+This is why TCProfiles was created. It allows to create one single template config with different profiles, and apply them as necessary,
+using just a few commands. Yes, this probably can be done with single small bash script but I just find Go easier to
 work with.
 
 ## Building
+
+You can just grab the amd64 linux release build from releases section, or build from source.
 
 if you have Golang installed, then simply grab the repo, and run
 ```
