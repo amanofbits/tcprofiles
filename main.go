@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -12,10 +13,11 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 const (
-	templateFile       = "./tcptemplate.txt"
+	templateFile       = "./tctemplate.txt"
 	defaultProfileName = "default"
 	template           = `# Profiles are defined as ini/toml sections, e.g. [profile_name]
 # Values before any profile defined belong to default profile, they will be used if not overridden in specific profile.
@@ -39,11 +41,37 @@ const (
 `
 )
 
+var errNoArguments = errors.New("no arguments specified")
+
 func main() {
-	selected := parseInput()
+	selected, err := parseInput()
+	if err != nil {
+		if !errors.Is(err, errNoArguments) {
+			logToErr("%v\n\n", err)
+		}
+		if errors.Is(err, errNoArguments) {
+			template, err := parseTemplate()
+			if errors.Is(err, os.ErrNotExist) {
+				logToErr("Template does not exist\n")
+			} else if err == nil {
+				logToErr("Profiles found in template: %s\n", strings.Join(getProfiles(template), ", "))
+			}
+		}
+		printUsage()
+		os.Exit(1)
+	}
 	logToErr("Profiles selected: %s;\n", strings.Join(selected, ", "))
 
-	template := parseTemplate()
+	template, err := parseTemplate()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			logToErr("Error: template file does not exist. Please create one\n")
+			printUsage()
+			os.Exit(1)
+		}
+		logToErr("%v", err)
+		os.Exit(1)
+	}
 	logToErr("Profiles found in template: %s\n", strings.Join(getProfiles(template), ", "))
 
 	config := strings.Builder{}
@@ -55,7 +83,13 @@ func main() {
 }
 
 func logToErr(msg string, args ...any) {
-	fmt.Fprintf(os.Stderr, msg, args...)
+	s := fmt.Sprintf(msg, args...)
+	if len(s) != 0 {
+		sr := []rune(s)
+		sr[0] = unicode.ToUpper(sr[0])
+		s = string(sr)
+	}
+	fmt.Fprintf(os.Stderr, "%s", s)
 }
 
 func logToOut(msg string, args ...any) {
@@ -67,21 +101,25 @@ func printUsage() {
 	logToErr(`
 Usage:
 	This tool allows to create tlp config text using profiles from a template.
-	1) Generate template file 'tcptemplate.txt' (won't be overwritten if
-	already exist)
-		%s template
+	1) Generate template file '%s' (won't be overwritten if
+	   already exist)
+		./%s template
 	2) Add profiles with tlp settings to the template and save the file.
 	3) Select profile[s] and validate output
-		%s use <profilename>[ <profilename>]
+		./%s use <profile1>[ <profile2>[ <profileN>]]
 	4) Write output to tlp config	
-		%s use default ac_powerbank | sudo tee /etc/tlp.d/50-config.conf
+		./%s use default | sudo tee /etc/tlp.d/50-config.conf
 
-	You can specify 1 or more profiles, they will be applied one by one left
+	Remember that you need to run tlp start to apply changes.
+	Or you can run it all in one line:
+		./%s use default | sudo tee /etc/tlp.d/50-config.conf && sudo tlp start
+
+	You can specify one or more profiles, they will be applied one by one left
 	to right, duplicate settings from last overrides such from first.
 
 	You can specify 'default' only as the single, or the first (which is
 	unnecessary) profile.
-`, tool, tool, tool)
+`, filepath.Base(templateFile), tool, tool, tool, tool)
 }
 
 type kv struct{ key, value string }
@@ -110,16 +148,10 @@ func getProfiles(sls []sectionLine) []string {
 var sectionRegex = regexp.MustCompile(`\[[\w\d]+\]$`)
 var keyValRegex = regexp.MustCompile(`^([A-Za-z0-9_]+)=(.+)$`)
 
-func parseTemplate() (lines []sectionLine) {
+func parseTemplate() (lines []sectionLine, err error) {
 	f, err := os.Open(templateFile)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			logToErr("Error: template file does not exist. Please create one\n")
-			printUsage()
-			os.Exit(1)
-		}
-		logToErr("Error: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 	defer f.Close()
 	bf := bufio.NewReader(f)
@@ -130,8 +162,7 @@ func parseTemplate() (lines []sectionLine) {
 		lineNum++
 		line, err := bf.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			logToErr("Template read line %d error: %v\n", lineNum, err)
-			os.Exit(1)
+			return nil, fmt.Errorf("template read line %d error: %v", lineNum, err)
 		}
 
 		line = strings.TrimSpace(line)
@@ -163,7 +194,7 @@ func parseTemplate() (lines []sectionLine) {
 			break
 		}
 	}
-	return lines
+	return lines, nil
 }
 
 func lastIndex[S ~[]E, E comparable](s S, v E) int {
@@ -175,11 +206,18 @@ func lastIndex[S ~[]E, E comparable](s S, v E) int {
 	return -1
 }
 
-func parseInput() (profiles []string) {
+func parseInput() (profiles []string, err error) {
 	inputs := os.Args[1:]
 	if len(inputs) == 0 {
-		printUsage()
-		os.Exit(1)
+		return nil, errNoArguments
+	}
+
+	h := flag.Bool("help", false, "")
+	hs := flag.Bool("h", false, "")
+	flag.Parse()
+
+	if *h || *hs {
+		return nil, errNoArguments
 	}
 
 	if inputs[0] == "template" {
@@ -188,16 +226,13 @@ func parseInput() (profiles []string) {
 	}
 
 	if inputs[0] != "use" {
-		printUsage()
-		os.Exit(1)
+		return nil, fmt.Errorf("unknown command %q", inputs[0])
 	}
 
 	inputs = inputs[1:]
 
 	if len(inputs) == 0 {
-		logToErr("Error: No profile[s] selected")
-		printUsage()
-		os.Exit(1)
+		return nil, fmt.Errorf("no profile[s] selected")
 	}
 
 	for i := 0; i < len(inputs); i++ {
@@ -205,17 +240,21 @@ func parseInput() (profiles []string) {
 	}
 
 	if len(profiles) > 0 && lastIndex(profiles, defaultProfileName) > 0 {
-		logToErr("Error: Default profile must be the only, or the first of many selections")
-		os.Exit(1)
+		return nil, fmt.Errorf("default profile must be the only, or the first of many selections.\n\tGot %q",
+			strings.Join(profiles, ","))
 	}
 
-	return profiles
+	return profiles, nil
 }
 
 func createTemplateFile() {
 	f, err := os.OpenFile(templateFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
-		logToErr("Error creating template: %v\n", err)
+		if errors.Is(err, os.ErrExist) {
+			logToErr("Error creating template file %q: already exists\n", templateFile)
+		} else {
+			logToErr("Error creating template: %v\n", err)
+		}
 		os.Exit(1)
 	}
 	defer f.Close()
