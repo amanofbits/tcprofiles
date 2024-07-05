@@ -41,7 +41,10 @@ const (
 `
 )
 
-var errNoArguments = errors.New("no arguments specified")
+var (
+	errNoArguments       = errors.New("no arguments specified")
+	errNoProfileSelected = errors.New("no profile[s] selected")
+)
 
 func main() {
 	selected, err := parseInput()
@@ -49,7 +52,7 @@ func main() {
 		if !errors.Is(err, errNoArguments) {
 			logToErr("%v\n\n", err)
 		}
-		if errors.Is(err, errNoArguments) {
+		if errors.Is(err, errNoArguments) || errors.Is(err, errNoProfileSelected) {
 			_, profiles, err := parseTemplate()
 			if errors.Is(err, os.ErrNotExist) {
 				logToErr("Template does not exist\n")
@@ -252,7 +255,7 @@ func parseInput() (profiles []string, err error) {
 	inputs = inputs[1:]
 
 	if len(inputs) == 0 {
-		return nil, fmt.Errorf("no profile[s] selected")
+		return nil, errNoProfileSelected
 	}
 
 	for i := 0; i < len(inputs); i++ {
