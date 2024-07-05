@@ -69,7 +69,7 @@ func main() {
 			printUsage()
 			os.Exit(1)
 		}
-		logToErr("%v", err)
+		logToErr("Template error: %v\n", err)
 		os.Exit(1)
 	}
 	logToErr("Profiles found in template: %s\n", strings.Join(getProfiles(template), ", "))
@@ -145,8 +145,9 @@ func getProfiles(sls []sectionLine) []string {
 	return append([]string{defaultProfileName}, psArr...)
 }
 
-var sectionRegex = regexp.MustCompile(`\[[\w\d]+\]$`)
-var keyValRegex = regexp.MustCompile(`^([A-Za-z0-9_]+)=(.+)$`)
+var sectionRegex = regexp.MustCompile(`^\[.*\]$`)
+var validSectionNameRegex = regexp.MustCompile(`^[\w\d]+$`)
+var keyValRegex = regexp.MustCompile(`^([\w]+?)=(.+)$`)
 
 func parseTemplate() (lines []sectionLine, err error) {
 	f, err := os.Open(templateFile)
@@ -174,12 +175,15 @@ func parseTemplate() (lines []sectionLine, err error) {
 		}
 		if sectionRegex.MatchString(line) {
 			p := line[1 : len(line)-1]
+			if !validSectionNameRegex.MatchString(p) {
+				return nil, fmt.Errorf("malformed section name %q at line %d. Latin letters, digits and underscores only",
+					p, lineNum)
+			}
 			curProfile = p
 		} else {
 			kvMatches := keyValRegex.FindStringSubmatch(line)
 			if len(kvMatches) < 3 {
-				logToErr("Malformed template line %d ignored: %s", lineNum, line)
-				continue
+				return nil, fmt.Errorf("malformed template line %d: %s", lineNum, line)
 			}
 			lines = append(lines, sectionLine{
 				profile: curProfile,
