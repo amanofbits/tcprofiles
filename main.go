@@ -50,19 +50,18 @@ func main() {
 			logToErr("%v\n\n", err)
 		}
 		if errors.Is(err, errNoArguments) {
-			template, err := parseTemplate()
+			_, profiles, err := parseTemplate()
 			if errors.Is(err, os.ErrNotExist) {
 				logToErr("Template does not exist\n")
 			} else if err == nil {
-				logToErr("Profiles found in template: %s\n", strings.Join(getProfiles(template), ", "))
+				logToErr("Profiles found in template: %s\n", strings.Join(profiles, ", "))
 			}
 		}
 		printUsage()
 		os.Exit(1)
 	}
-	logToErr("Profiles selected: %s;\n", strings.Join(selected, ", "))
 
-	template, err := parseTemplate()
+	template, profiles, err := parseTemplate()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			logToErr("Error: template file does not exist. Please create one\n")
@@ -72,7 +71,15 @@ func main() {
 		logToErr("Template error: %v\n", err)
 		os.Exit(1)
 	}
-	logToErr("Profiles found in template: %s\n", strings.Join(getProfiles(template), ", "))
+
+	if err = matchSelected(selected, profiles); err != nil {
+		logToErr("%s\n", err)
+		logToErr("Profiles found in template: %s\n", strings.Join(profiles, ", "))
+		os.Exit(1)
+	}
+
+	logToErr("Profiles selected: %s;\n", strings.Join(selected, ", "))
+	logToErr("Profiles found in template: %s\n", strings.Join(profiles, ", "))
 
 	config := strings.Builder{}
 	fillConfig(&config, template, selected)
@@ -80,6 +87,15 @@ func main() {
 	logToErr("Output:\n")
 
 	logToOut("%s\n", config.String())
+}
+
+func matchSelected(selected, profiles []string) error {
+	for _, p := range selected {
+		if slices.Index(profiles, p) < 0 {
+			return fmt.Errorf("profile does not exist in template: %s", p)
+		}
+	}
+	return nil
 }
 
 func logToErr(msg string, args ...any) {
@@ -149,10 +165,10 @@ var sectionRegex = regexp.MustCompile(`^\[.*\]$`)
 var validSectionNameRegex = regexp.MustCompile(`^[\w\d]+$`)
 var keyValRegex = regexp.MustCompile(`^([\w]+?)=(.+)$`)
 
-func parseTemplate() (lines []sectionLine, err error) {
+func parseTemplate() (lines []sectionLine, profiles []string, err error) {
 	f, err := os.Open(templateFile)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 	bf := bufio.NewReader(f)
@@ -163,7 +179,7 @@ func parseTemplate() (lines []sectionLine, err error) {
 		lineNum++
 		line, err := bf.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("template read line %d error: %v", lineNum, err)
+			return nil, nil, fmt.Errorf("template read line %d error: %v", lineNum, err)
 		}
 
 		line = strings.TrimSpace(line)
@@ -176,14 +192,14 @@ func parseTemplate() (lines []sectionLine, err error) {
 		if sectionRegex.MatchString(line) {
 			p := line[1 : len(line)-1]
 			if !validSectionNameRegex.MatchString(p) {
-				return nil, fmt.Errorf("malformed section name %q at line %d. Latin letters, digits and underscores only",
+				return nil, nil, fmt.Errorf("malformed section name %q at line %d. Latin letters, digits and underscores only",
 					p, lineNum)
 			}
 			curProfile = p
 		} else {
 			kvMatches := keyValRegex.FindStringSubmatch(line)
 			if len(kvMatches) < 3 {
-				return nil, fmt.Errorf("malformed template line %d: %s", lineNum, line)
+				return nil, nil, fmt.Errorf("malformed template line %d: %s", lineNum, line)
 			}
 			lines = append(lines, sectionLine{
 				profile: curProfile,
@@ -198,7 +214,7 @@ func parseTemplate() (lines []sectionLine, err error) {
 			break
 		}
 	}
-	return lines, nil
+	return lines, getProfiles(lines), nil
 }
 
 func lastIndex[S ~[]E, E comparable](s S, v E) int {
